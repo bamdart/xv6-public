@@ -14,7 +14,8 @@
 #include "mmu.h"
 #include "proc.h"
 #include "x86.h"
-
+#include "test.h"
+//#include <stdio.h>
 static void consputc(int);
 
 static int panicked = 0;
@@ -192,7 +193,7 @@ void
 consoleintr(int (*getc)(void))
 {
   int c, doprocdump = 0;
-
+	extern int suspend_flag;
   acquire(&cons.lock);
   while((c = getc()) >= 0){
     switch(c){
@@ -213,7 +214,16 @@ consoleintr(int (*getc)(void))
         consputc(BACKSPACE);
       }
       break;
+
     default:
+	if(c==C('W')){
+		suspend_flag=0;
+		release(&cons.lock);
+		cprintf("wakeup!!\n");
+		
+		pmwakeup();
+ 		acquire(&cons.lock);
+	}
       if(c != 0 && input.e-input.r < INPUT_BUF){
         c = (c == '\r') ? '\n' : c;
         input.buf[input.e++ % INPUT_BUF] = c;
@@ -237,11 +247,14 @@ consoleread(struct inode *ip, char *dst, int n)
 {
   uint target;
   int c;
-
+  //int flag=0;
   iunlock(ip);
   target = n;
   acquire(&cons.lock);
   while(n > 0){
+	extern int suspend_flag;
+	//suspend_flag=1;
+	
     while(input.r == input.w){
       if(myproc()->killed){
         release(&cons.lock);
@@ -251,6 +264,15 @@ consoleread(struct inode *ip, char *dst, int n)
       sleep(&input.r, &cons.lock);
     }
     c = input.buf[input.r++ % INPUT_BUF];
+	//---
+	if(suspend_flag==1&&c!=C('W')){
+		continue;
+	}
+	else if(suspend_flag==1&&c==C('W')){
+		//flag=1;
+  		suspend_flag=0;
+	}
+	//---
     if(c == C('D')){  // EOF
       if(n < target){
         // Save ^D for next time, to make sure
